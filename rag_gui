@@ -1,0 +1,100 @@
+import os
+import tkinter as tk
+from tkinter import ttk, scrolledtext
+from langchain_openai import OpenAIEmbeddings, ChatOpenAI
+from langchain_community.vectorstores import Chroma
+from langchain_community.document_loaders import TextLoader
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain.chains import RetrievalQA
+
+# OpenAI API 키 설정 (환경 변수에 넣기)
+os.environ["OPENAI_API_KEY"] = "api"  # 실제 키로 교체 필요
+
+# 문서 로딩 및 분할
+loader = TextLoader("insa.txt", encoding="utf-8")
+documents = loader.load()
+text_splitter = RecursiveCharacterTextSplitter(chunk_size=300, chunk_overlap=30)
+docs = text_splitter.split_documents(documents)
+
+# 임베딩 및 벡터 스토어 설정
+embeddings = OpenAIEmbeddings()
+vector_store = Chroma.from_documents(docs, embeddings, persist_directory=None)
+
+# GUI 클래스 정의
+class ChatApp:
+    def __init__(self, master):
+        self.master = master
+        master.title("LangChain GPT 대화창")
+        master.geometry("700x650")
+        master.configure(bg="#f7f7f7")
+
+        # 채팅 영역 (맑은 고딕 글꼴로 설정)
+        self.chat_area = scrolledtext.ScrolledText(
+            master, wrap=tk.WORD, width=80, height=25, font=("Malgun Gothic", 11), bg="white"
+        )
+        self.chat_area.pack(pady=10, padx=10)
+        self.chat_area.insert(tk.END, "💬 LangChain GPT에 질문해보세요!\n\n")
+
+        # 응답 길이 선택
+        self.length_var = tk.StringVar(value="중간")
+        length_frame = tk.Frame(master, bg="#f7f7f7")
+        length_frame.pack(pady=5)
+
+        tk.Label(length_frame, text="답변 길이 선택:", bg="#f7f7f7", font=("Malgun Gothic", 10)).pack(side=tk.LEFT)
+        for label in ["짧게", "중간", "길게"]:
+            tk.Radiobutton(
+                length_frame,
+                text=label,
+                variable=self.length_var,
+                value=label,
+                bg="#f7f7f7",
+                font=("Malgun Gothic", 10)
+            ).pack(side=tk.LEFT, padx=5)
+
+        # 질문 입력창 (맑은 고딕 글꼴로 설정)
+        input_frame = tk.Frame(master, bg="#f7f7f7")
+        input_frame.pack(pady=10)
+        self.entry = tk.Entry(input_frame, width=60, font=("Malgun Gothic", 11))  # 글꼴 추가
+        self.entry.pack(side=tk.LEFT, padx=5)
+        self.entry.bind("<Return>", self.ask_question)
+
+        # 버튼
+        self.ask_button = tk.Button(input_frame, text="질문하기", command=self.ask_question, font=("Malgun Gothic", 10))
+        self.ask_button.pack(side=tk.LEFT)
+
+    def get_max_tokens(self):
+        selection = self.length_var.get()
+        return {"짧게": 256, "중간": 1024, "길게": 2048}.get(selection, 1024)
+
+    def ask_question(self, event=None):
+        user_query = self.entry.get().strip()
+        if not user_query:
+            return
+
+        self.chat_area.insert(tk.END, f"\n👤 질문: {user_query}\n\n")  # 질문과 답변 사이에 공백 추가
+        self.chat_area.see(tk.END)
+
+        # max_tokens 설정
+        max_tokens = self.get_max_tokens()
+
+        # LLM 및 QA 체인 설정
+        llm = ChatOpenAI(model_name="gpt-4o", temperature=0, max_tokens=max_tokens)
+        qa_chain = RetrievalQA.from_chain_type(
+            llm=llm,
+            chain_type="stuff",
+            retriever=vector_store.as_retriever(search_kwargs={"k": 3}),
+            return_source_documents=True
+        )
+
+        # 답변 실행
+        result = qa_chain.invoke({"query": user_query})
+        self.chat_area.insert(tk.END, f"🤖 답변: {result['result']}\n\n")  # 답변 후에 공백 추가
+        self.chat_area.see(tk.END)
+
+        self.entry.delete(0, tk.END)
+
+# GUI 실행
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = ChatApp(root)
+    root.mainloop()
