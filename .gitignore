@@ -1,0 +1,4 @@
+# Python 환경 설정 파일 무시
+.env
+__pycache__/
+*.pyc
